@@ -1,0 +1,419 @@
+//+------------------------------------------------------------------+
+//|                                IndicadorGammaLevels_Top10.mq5    |
+//|           Versão Top 10 - Mostra os 5 maiores níveis de call     |
+//|           e 5 maiores níveis de put separadamente                |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2025, Marcelo Marega"
+#property link      ""
+#property version   "1.02"
+#property indicator_chart_window
+
+//--- Definições de constantes para compatibilidade
+#define MODE_EMA 1
+#define PRICE_CLOSE 0
+#property indicator_buffers 11
+#property indicator_plots   11
+
+//--- plot GLevel1+ a GLevel5+ (Calls)
+#property indicator_label1  "GLevel1+"
+#property indicator_type1   DRAW_LINE
+#property indicator_color1  clrOrange
+#property indicator_width1  2
+#property indicator_label2  "GLevel2+"
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrOrange
+#property indicator_width2  2
+#property indicator_label3  "GLevel3+"
+#property indicator_type3   DRAW_LINE
+#property indicator_color3  clrOrange
+#property indicator_width3  2
+#property indicator_label4  "GLevel4+"
+#property indicator_type4   DRAW_LINE
+#property indicator_color4  clrOrange
+#property indicator_width4  2
+#property indicator_label5  "GLevel5+"
+#property indicator_type5   DRAW_LINE
+#property indicator_color5  clrOrange
+#property indicator_width5  2
+
+//--- plot GLevel1- a GLevel5- (Puts)
+#property indicator_label6  "GLevel1-"
+#property indicator_type6   DRAW_LINE
+#property indicator_color6  clrYellow
+#property indicator_width6  2
+#property indicator_label7  "GLevel2-"
+#property indicator_type7   DRAW_LINE
+#property indicator_color7  clrYellow
+#property indicator_width7  2
+#property indicator_label8  "GLevel3-"
+#property indicator_type8   DRAW_LINE
+#property indicator_color8  clrYellow
+#property indicator_width8  2
+#property indicator_label9  "GLevel4-"
+#property indicator_type9   DRAW_LINE
+#property indicator_color9  clrYellow
+#property indicator_width9  2
+#property indicator_label10 "GLevel5-"
+#property indicator_type10  DRAW_LINE
+#property indicator_color10 clrYellow
+#property indicator_width10 2
+
+//--- plot EMA9
+#property indicator_label11 "EMA9"
+#property indicator_type11  DRAW_LINE
+#property indicator_color11 clrBlue
+#property indicator_width11 2
+
+//--- input parameters
+input int    InpUpdatePeriod = 86400;       // Atualização dos níveis a cada 30 minutos (em segundos)
+input bool   InpShowLabels = true;        // Mostrar rótulos dos níveis
+input bool   InpShowSignals = true;       // Mostrar sinais de trading
+input bool   InpShowAlerts = true;        // Mostrar alertas
+input double InpSignalThreshold = 0.5;    // Limiar para sinais (% do nível)
+input bool   InpShowVolumeForce = true;   // Mostrar força do volume
+input int    InpAlertDistance = 10;       // Distância para alerta (pontos)
+input bool   InpShowWalls = true;         // Mostrar Call/Put Walls
+input double InpWallThreshold = 2.0;      // Limiar para detecção de Wall (%)
+input int    InpWallPeriod = 50;          // Período para análise de Wall
+input bool   InpWallAlerts = true;        // Alertas para Walls
+input bool   InpUseProxy = false;         // Usar proxy para conexão
+input string InpProxyServer = "";         // Servidor proxy
+input int    InpProxyPort = 0;            // Porta do proxy
+input double InpVolumeThreshold = 1.5;    // Limiar de volume para ajuste dos níveis
+
+//--- indicator buffers
+double CallLevelBuffer1[];
+double CallLevelBuffer2[];
+double CallLevelBuffer3[];
+double CallLevelBuffer4[];
+double CallLevelBuffer5[];
+double PutLevelBuffer1[];
+double PutLevelBuffer2[];
+double PutLevelBuffer3[];
+double PutLevelBuffer4[];
+double PutLevelBuffer5[];
+double EMA9Buffer[];
+
+// Adicionar handle global para EMA9
+int ema9_handle = INVALID_HANDLE;
+
+//--- global variables
+static datetime lastUpdateTime = 0;
+static double lastCallLevels[5] = {0};
+static double lastPutLevels[5] = {0};
+
+// Structs no padrão MQL5
+struct OptionData {
+   string option;
+   double last_trade_price;
+   double change;
+   double bid;
+   double ask;
+   long opt_volume;
+   double iv;
+   double delta;
+   double gamma;
+   long open_interest;
+   string callPut;
+   double strike;
+   datetime expirationDate;
+   double gammaExposure;
+};
+
+struct OptionsResponse {
+   double close;
+   OptionData options[];
+};
+
+int OnInit()
+{
+   SetIndexBuffer(0, CallLevelBuffer1, INDICATOR_DATA);
+   SetIndexBuffer(1, CallLevelBuffer2, INDICATOR_DATA);
+   SetIndexBuffer(2, CallLevelBuffer3, INDICATOR_DATA);
+   SetIndexBuffer(3, CallLevelBuffer4, INDICATOR_DATA);
+   SetIndexBuffer(4, CallLevelBuffer5, INDICATOR_DATA);
+   SetIndexBuffer(5, PutLevelBuffer1, INDICATOR_DATA);
+   SetIndexBuffer(6, PutLevelBuffer2, INDICATOR_DATA);
+   SetIndexBuffer(7, PutLevelBuffer3, INDICATOR_DATA);
+   SetIndexBuffer(8, PutLevelBuffer4, INDICATOR_DATA);
+   SetIndexBuffer(9, PutLevelBuffer5, INDICATOR_DATA);
+   SetIndexBuffer(10, EMA9Buffer, INDICATOR_DATA);
+   IndicatorSetInteger(INDICATOR_DIGITS, _Digits);
+   string cboeSymbol = SymbolToCBOE(_Symbol);
+   IndicatorSetString(INDICATOR_SHORTNAME, "Gamma Top 5+5(" + cboeSymbol + ")");
+   // No OnInit, inicializar o handle da EMA9
+   ema9_handle = iMA(_Symbol, _Period, 9, 0, (ENUM_MA_METHOD)MODE_EMA, (ENUM_APPLIED_PRICE)PRICE_CLOSE);
+   return(INIT_SUCCEEDED);
+}
+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+{
+   if(rates_total < 1)
+      return(0);
+   double currentPrice = close[rates_total-1];
+   datetime currentTime = time[rates_total-1];
+   // No OnCalculate, só recalcular os níveis se passou o tempo do InpUpdatePeriod
+   if(currentTime - lastUpdateTime >= InpUpdatePeriod || lastCallLevels[0] == 0)
+   {
+      lastUpdateTime = currentTime;
+      double fallbackPercent = 0.1;
+      for(int i = 0; i < 5; i++)
+      {
+         lastCallLevels[i] = currentPrice * (1 + (fallbackPercent * (i + 1)) / 100.0);
+         lastPutLevels[i]  = currentPrice * (1 - (fallbackPercent * (i + 1)) / 100.0);
+         Print("[GAMMA] Fallback Call Level ", i+1, ": ", lastCallLevels[i]);
+         Print("[GAMMA] Fallback Put Level ", i+1, ": ", lastPutLevels[i]);
+      }
+   }
+   double callLevels[5] = {0};
+   double putLevels[5] = {0};
+   for(int i = 0; i < 5; i++)
+   {
+      callLevels[i] = lastCallLevels[i];
+      putLevels[i]  = lastPutLevels[i];
+   }
+   Print("=== DEBUG GAMMA TOP 5+5 LEVELS ===");
+   string callStr = "";
+   string putStr = "";
+   for(int i = 0; i < 5; i++)
+   {
+      callStr += DoubleToString(callLevels[i], _Digits) + (i < 4 ? " | " : "");
+      putStr += DoubleToString(putLevels[i], _Digits) + (i < 4 ? " | " : "");
+   }
+   Print("Call Levels: ", callStr);
+   Print("Put Levels: ", putStr);
+   Print("Current Price: ", currentPrice);
+   Print("==========================");
+   // Preencher todos os índices dos buffers com os valores dos níveis
+   ArrayResize(CallLevelBuffer1, rates_total);
+   ArrayResize(CallLevelBuffer2, rates_total);
+   ArrayResize(CallLevelBuffer3, rates_total);
+   ArrayResize(CallLevelBuffer4, rates_total);
+   ArrayResize(CallLevelBuffer5, rates_total);
+   ArrayResize(PutLevelBuffer1, rates_total);
+   ArrayResize(PutLevelBuffer2, rates_total);
+   ArrayResize(PutLevelBuffer3, rates_total);
+   ArrayResize(PutLevelBuffer4, rates_total);
+   ArrayResize(PutLevelBuffer5, rates_total);
+   ArrayResize(EMA9Buffer, rates_total);
+   for(int i = 0; i < rates_total; i++)
+   {
+       CallLevelBuffer1[i] = callLevels[0];
+       CallLevelBuffer2[i] = callLevels[1];
+       CallLevelBuffer3[i] = callLevels[2];
+       CallLevelBuffer4[i] = callLevels[3];
+       CallLevelBuffer5[i] = callLevels[4];
+       PutLevelBuffer1[i] = putLevels[0];
+       PutLevelBuffer2[i] = putLevels[1];
+       PutLevelBuffer3[i] = putLevels[2];
+       PutLevelBuffer4[i] = putLevels[3];
+       PutLevelBuffer5[i] = putLevels[4];
+   }
+   // Preencher o buffer EMA9 de uma vez
+   if(CopyBuffer(ema9_handle, 0, 0, rates_total, EMA9Buffer) <= 0) {
+       for(int i = 0; i < rates_total; i++)
+           EMA9Buffer[i] = EMPTY_VALUE;
+   }
+   if(InpShowLabels)
+   {
+      // Remove todas as linhas antigas GammaLine_
+      ObjectsDeleteAll(0, "GammaLine_");
+      // Cria as linhas horizontais dos níveis atuais
+      color callColor = clrRed;
+      color putColor = clrLimeGreen;
+      for(int i = 0; i < 5; i++)
+      {
+         if(callLevels[i] > 0 && callLevels[i] != EMPTY_VALUE) {
+            CreateHorizontalLine("Call" + IntegerToString(i+1), callLevels[i], callColor, 3, "GLevel" + IntegerToString(i+1) + "+");
+         }
+         if(putLevels[i] > 0 && putLevels[i] != EMPTY_VALUE) {
+            CreateHorizontalLine("Put" + IntegerToString(i+1), putLevels[i], putColor, 3, "GLevel" + IntegerToString(i+1) + "-");
+         }
+      }
+   } else {
+      Print("InpShowLabels está DESATIVADO - linhas não serão criadas");
+   }
+   return(rates_total);
+}
+
+bool CalculateGammaLevelsTop5(OptionsResponse &resp, double &callLevels[], double &putLevels[])
+{
+   OptionData calls[];
+   OptionData puts[];
+   int callCount = 0;
+   int putCount = 0;
+   for(int i = 0; i < ArraySize(resp.options); i++)
+   {
+      if(resp.options[i].callPut == "C")
+      {
+         ArrayResize(calls, callCount + 1);
+         calls[callCount] = resp.options[i];
+         callCount++;
+      }
+      else if(resp.options[i].callPut == "P")
+      {
+         ArrayResize(puts, putCount + 1);
+         puts[putCount] = resp.options[i];
+         putCount++;
+      }
+   }
+   SortByOpenInterest(calls);
+   SortByOpenInterest(puts);
+   for(int i = 0; i < 5; i++)
+   {
+      callLevels[i] = (i < ArraySize(calls)) ? calls[i].strike : 0.0;
+      putLevels[i]  = (i < ArraySize(puts))  ? puts[i].strike  : 0.0;
+   }
+   return true;
+}
+
+void SortByOpenInterest(OptionData &options[])
+{
+   int size = ArraySize(options);
+   for(int i = 0; i < size - 1; i++)
+   {
+      for(int j = i + 1; j < size; j++)
+      {
+         if(options[i].open_interest < options[j].open_interest)
+         {
+            OptionData temp = options[i];
+            options[i] = options[j];
+            options[j] = temp;
+         }
+      }
+   }
+}
+
+string SymbolToCBOE(string symbol)
+{
+   if(symbol=="US500" || symbol=="US500IDX") return "SPX";
+   if(symbol=="SPY") return "SPY";
+   if(symbol=="QQQ") return "QQQ";
+   if(symbol=="IWM") return "IWM";
+   if(symbol=="VIX") return "VIX";
+   return symbol;
+}
+
+bool FetchOptionsData(string symbol, OptionsResponse &resp)
+{
+   string url = "https://cdn.cboe.com/api/global/delayed_quotes/options/_" + symbol + ".json";
+   string headers = "User-Agent: MetaTrader5\r\n";
+   uchar data[];
+   uchar result[];
+   string response_headers;
+   int timeout = 5000;
+   int res = WebRequest("GET", url, headers, timeout, data, result, response_headers);
+   if(res != 200)
+   {
+      Print("HTTP Error: " + IntegerToString(res));
+      return false;
+   }
+   string json = CharArrayToString(result);
+   int closeStart = StringFind(json, "\"close\":");
+   if(closeStart == -1) return false;
+   int closeEnd = StringFind(json, ",", closeStart);
+   if(closeEnd == -1) closeEnd = StringFind(json, "}", closeStart);
+   string closeStr = StringSubstr(json, closeStart + 8, closeEnd - closeStart - 8);
+   resp.close = StringToDouble(closeStr);
+   int optionsStart = StringFind(json, "\"options\":[");
+   if(optionsStart == -1) return false;
+   int optionsEnd = StringFind(json, "]", optionsStart);
+   if(optionsEnd == -1) return false;
+   string optionsJson = StringSubstr(json, optionsStart + 10, optionsEnd - optionsStart - 10);
+   if(!ParseOptionsData(optionsJson, resp.options)) return false;
+   return true;
+}
+
+bool ParseOptionsData(string json, OptionData &options[])
+{
+   int count = 0;
+   int pos = 0;
+   while((pos = StringFind(json, "{", pos)) != -1)
+   {
+      count++;
+      pos++;
+   }
+   if(count == 0) return false;
+   ArrayResize(options, count);
+   int index = 0;
+   pos = 0;
+   while(pos < StringLen(json) && index < count)
+   {
+      int optionStart = StringFind(json, "{", pos);
+      if(optionStart == -1) break;
+      int optionEnd = StringFind(json, "}", optionStart);
+      if(optionEnd == -1) break;
+      string optionJson = StringSubstr(json, optionStart, optionEnd - optionStart + 1);
+      if(ParseSingleOption(optionJson, options[index])) index++;
+      pos = optionEnd + 1;
+   }
+   ArrayResize(options, index);
+   return true;
+}
+
+bool ParseSingleOption(string json, OptionData &option)
+{
+   int symbolStart = StringFind(json, "\"option\":\"");
+   if(symbolStart == -1) return false;
+   int symbolEnd = StringFind(json, "\"", symbolStart + 10);
+   if(symbolEnd == -1) return false;
+   option.option = StringSubstr(json, symbolStart + 10, symbolEnd - symbolStart - 10);
+   option.callPut = StringSubstr(option.option, StringLen(option.option) - 9, 1);
+   string strikeStr = StringSubstr(option.option, StringLen(option.option) - 8, 5);
+   option.strike = StringToDouble(strikeStr);
+   int oiStart = StringFind(json, "\"open_interest\":");
+   if(oiStart != -1)
+   {
+      int oiEnd = StringFind(json, ",", oiStart);
+      if(oiEnd == -1) oiEnd = StringFind(json, "}", oiStart);
+      string oiStr = StringSubstr(json, oiStart + 16, oiEnd - oiStart - 16);
+      option.open_interest = StringToInteger(oiStr);
+   }
+   int gammaStart = StringFind(json, "\"gamma\":");
+   if(gammaStart != -1)
+   {
+      int gammaEnd = StringFind(json, ",", gammaStart);
+      if(gammaEnd == -1) gammaEnd = StringFind(json, "}", gammaStart);
+      string gammaStr = StringSubstr(json, gammaStart + 9, gammaEnd - gammaStart - 9);
+      option.gamma = StringToDouble(gammaStr);
+   }
+   int priceStart = StringFind(json, "\"last_trade_price\":");
+   if(priceStart != -1)
+   {
+      int priceEnd = StringFind(json, ",", priceStart);
+      if(priceEnd == -1) priceEnd = StringFind(json, "}", priceStart);
+      string priceStr = StringSubstr(json, priceStart + 20, priceEnd - priceStart - 20);
+      option.last_trade_price = StringToDouble(priceStr);
+   }
+   return true;
+} 
+
+// Função para criar linha horizontal no gráfico
+void CreateHorizontalLine(string name, double price, color clr, int width, string text)
+{
+   string lineName = "GammaLine_" + name;
+   if(ObjectFind(0, lineName) >= 0)
+      ObjectDelete(0, lineName);
+   bool created = ObjectCreate(0, lineName, OBJ_HLINE, 0, 0, price);
+   if(!created)
+   {
+      Print("ERRO: Falha ao criar linha horizontal: ", lineName, " - Erro: ", GetLastError());
+      return;
+   }
+   ObjectSetInteger(0, lineName, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, lineName, OBJPROP_WIDTH, width);
+   ObjectSetString(0, lineName, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, lineName, OBJPROP_STYLE, STYLE_SOLID);
+   ObjectSetInteger(0, lineName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, false);
+   ObjectSetInteger(0, lineName, OBJPROP_BACK, false);
+} 
