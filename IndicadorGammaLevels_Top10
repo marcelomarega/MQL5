@@ -59,7 +59,7 @@
 #property indicator_width10 2
 
 //--- plot EMA9
-#property indicator_label11 "EMA9"
+//#property indicator_label11 "EMA9"
 #property indicator_type11  DRAW_LINE
 #property indicator_color11 clrBlue
 #property indicator_width11 2
@@ -95,7 +95,7 @@ double PutLevelBuffer5[];
 double EMA9Buffer[];
 
 // Adicionar handle global para EMA9
-int ema9_handle = INVALID_HANDLE;
+//int ema9_handle = INVALID_HANDLE;
 
 //--- global variables
 static datetime lastUpdateTime = 0;
@@ -219,10 +219,10 @@ int OnCalculate(const int rates_total,
        PutLevelBuffer5[i] = putLevels[4];
    }
    // Preencher o buffer EMA9 de uma vez
-   if(CopyBuffer(ema9_handle, 0, 0, rates_total, EMA9Buffer) <= 0) {
-       for(int i = 0; i < rates_total; i++)
-           EMA9Buffer[i] = EMPTY_VALUE;
-   }
+   //if(CopyBuffer(ema9_handle, 0, 0, rates_total, EMA9Buffer) <= 0) {
+   //    for(int i = 0; i < rates_total; i++)
+   //        EMA9Buffer[i] = EMPTY_VALUE;
+   //}
    if(InpShowLabels)
    {
       // Remove todas as linhas antigas GammaLine_
