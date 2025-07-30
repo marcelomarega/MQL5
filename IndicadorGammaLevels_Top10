@@ -142,7 +142,7 @@ int OnInit()
    string cboeSymbol = SymbolToCBOE(_Symbol);
    IndicatorSetString(INDICATOR_SHORTNAME, "Gamma Top 5+5(" + cboeSymbol + ")");
    // No OnInit, inicializar o handle da EMA9
-   ema9_handle = iMA(_Symbol, _Period, 9, 0, (ENUM_MA_METHOD)MODE_EMA, (ENUM_APPLIED_PRICE)PRICE_CLOSE);
+   //ema9_handle = iMA(_Symbol, _Period, 9, 0, (ENUM_MA_METHOD)MODE_EMA, (ENUM_APPLIED_PRICE)PRICE_CLOSE);
    return(INIT_SUCCEEDED);
 }
 
