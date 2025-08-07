@@ -1,0 +1,36 @@
+#include<Trade\Trade.mqh> CTrade trade;
+ 
+double AperturaVenta=0;double SLVenta=0;double TPVenta=0;bool Venta=false;
+double AperturaCompra=0; double SLCompra=0; double TPCompra=0;bool Compra=false;
+ 
+void OnTick()
+  {
+   for(int a=0; a<PositionsTotal() ; a++)
+     {
+     ulong Ticket=PositionGetTicket(a);
+ 
+       if(_Symbol == PositionGetString(POSITION_SYMBOL))
+       { 
+//COMPRA                   
+           if(PositionGetInteger(POSITION_TYPE)== POSITION_TYPE_BUY && Compra==false)        
+           {          
+               AperturaCompra=PositionGetDouble(POSITION_PRICE_OPEN);
+               SLCompra= AperturaCompra - 500*_Point;
+               TPCompra= AperturaCompra + 500*_Point;  
+ 
+               trade.PositionModify(Ticket,SLCompra,TPCompra);
+               Compra=true;           
+           }   
+//VENTA           
+           if(PositionGetInteger(POSITION_TYPE)== POSITION_TYPE_SELL && Venta==false)        
+           {          
+               AperturaVenta=PositionGetDouble(POSITION_PRICE_OPEN);
+               SLVenta= AperturaVenta + 500*_Point;
+               TPVenta= AperturaVenta - 500*_Point;  
+ 
+               trade.PositionModify(Ticket,SLVenta,TPVenta); 
+               Venta=true;               
+           }             
+        }
+     }
+ }
