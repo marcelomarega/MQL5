@@ -100,29 +100,27 @@ int OnCalculate(const int rates_total,
 
          for(int i = 0; i < ArraySize(resp.options); i++)
          {
-            const OptionData &opt = resp.options[i];
-
             double weight = 0.0;
             if(InpUseOpenInterest)
             {
-               weight = (double)opt.open_interest;
+               weight = (double)resp.options[i].open_interest;
             }
             else
             {
                // Preferir volume; se 0, cair para OI
-               weight = (double)opt.opt_volume;
+               weight = (double)resp.options[i].opt_volume;
                if(weight <= 0.0)
-                  weight = (double)opt.open_interest;
+                  weight = (double)resp.options[i].open_interest;
             }
 
-            if(weight <= 0.0 || opt.gamma == 0.0)
+            if(weight <= 0.0 || resp.options[i].gamma == 0.0)
                continue;
 
-            double gammaWeighted = opt.gamma * weight;
+            double gammaWeighted = resp.options[i].gamma * weight;
 
-            if(opt.callPut == "C")
+            if(resp.options[i].callPut == "C")
                sumGammaVolCalls += gammaWeighted;
-            else if(opt.callPut == "P")
+            else if(resp.options[i].callPut == "P")
                sumGammaVolPuts  += gammaWeighted;
          }
 
